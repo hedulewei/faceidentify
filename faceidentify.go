@@ -12,10 +12,14 @@ type FaceInfo struct {
 
 var bigArr []FaceInfo
 
-func identify( ctx *server.Context) string  {
-
+func identify(ctx *server.Context) string  {
 	return ""
 }
+
+func adduser(ctx *server.Context)  {
+
+}
+
 
 //求欧几里距离
 func euclidean(infoA,infoB[]float64) (float64,error) {
@@ -30,6 +34,7 @@ func euclidean(infoA,infoB[]float64) (float64,error) {
 }
 
 func main()  {
-	server.AddRoute("/",identify)
+	server.AddRoute("/identify",identify)
+	server.AddRoute("/adduser",adduser)
 	server.Run(":"+utils.Conf.GetString("base","port"))
 }
