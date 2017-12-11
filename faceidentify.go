@@ -8,46 +8,126 @@ import (
 	"fmt"
 	"net/http"
 	"github.com/widaT/faceidentify/utils"
+	"github.com/boltdb/bolt"
+	"log"
+	"encoding/json"
+	"sort"
 )
 
+var db *bolt.DB
+func init()  {
+	var err error
+	db, err = bolt.Open("my.db", 0600, nil)
+	if err != nil {
+		log.Fatal("create db err")
+	}
+}
+
 type UserInfo struct {
-	ID string
+	UID string	`json:"uid"`
+	Features [][]float64 `json:"features"`
+	GroupId string `json:"group_id"`
+	ActionType string `json:"-"`
+	Distance []float64 `json:"-"`
+}
+
+type FaceInfo struct {
+	Users []UserInfo
+}
+
+type ResultInfo struct {
+	Distance float64
+	User UserInfo
+}
+
+type ResultSlice []ResultInfo
+func (p ResultSlice) Len() int           { return len(p) }
+func (p ResultSlice) Less(i, j int) bool { return p[i].Distance < p[j].Distance }
+func (p ResultSlice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
+
+type Arg struct {
 	Feature []float64
 	GroupId string
 }
 
-type FaceInfo struct {
-	Users *[]UserInfo
-}
-
-
-type ResultInfo struct {
-	ID string
-	Distance float64
-	GroupId string
-}
-
-
-func (f *FaceInfo) Identify(arg []float64, result *[]ResultInfo) error {
-	for _,user:= range *f.Users {
-		distance,_ := euclidean(arg,user.Feature)
-		*result = append(*result,ResultInfo{user.ID,distance,user.GroupId})
-	}
-	return nil
+func (f *FaceInfo) Identify(arg Arg, result *[]ResultInfo) error {
+	return db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("group_"+arg.GroupId))
+		if b == nil {
+			//不存在的group
+			return nil
+		}
+		c := b.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var user UserInfo
+			json.Unmarshal(v,&user)
+			for _,feature := range user.Features{
+				distance,_ := euclidean(arg.Feature,feature)
+				user.Distance = append(user.Distance,distance)
+				sort.Float64s(user.Distance)
+			}
+			user.Features = nil
+			if len(*result) < 5 {
+				*result = append(*result,ResultInfo{user.Distance[0],user})
+				sort.Sort(ResultSlice(*result))
+			}else{
+				if user.Distance[0]< (*result)[4].Distance {
+					(*result)[4] = ResultInfo{user.Distance[0],user}
+				}
+				sort.Sort(ResultSlice(*result))
+			}
+		}
+		return nil
+	})
 }
 
 func (f *FaceInfo) GetInfo(arg int, result * string) error {
-	*result = fmt.Sprintf("user length %d",len(*f.Users))
+	*result = fmt.Sprintf("user length %d",len(f.Users))
 	return nil
 }
-
 
 func (f *FaceInfo) AddUser(user UserInfo,result *bool)error  {
-	*f.Users = append(*f.Users,user)
-	*result = true
-	return nil
+	err := db.Update(func(tx *bolt.Tx) error {
+		b ,_:= tx.CreateBucketIfNotExists([]byte("group_"+user.GroupId))
+		if user.ActionType == "replace" {
+			buf, err := json.Marshal(user)
+			if err != nil {
+				return err
+			}
+			return b.Put([]byte(user.UID), buf)
+		}
+		btye := b.Get([]byte(user.UID))
+		if btye != nil {
+			var userB UserInfo
+			json.Unmarshal(btye,&userB)
+			userB.Features = append(userB.Features,user.Features[0])
+			buf, err := json.Marshal(userB)
+			if err != nil {
+				return err
+			}
+			return b.Put([]byte(user.UID), buf)
+		}
+		return nil
+	})
+	if err == nil {
+		*result = true
+		return nil
+	}
+	*result = false
+	return err
 }
 
+func (f *FaceInfo) DelGroup(group string,result *bool)error  {
+	err := db.Update(func(tx *bolt.Tx) error {
+		return tx.DeleteBucket([]byte("group_"+group))
+	})
+	if err == nil {
+		*result = true
+		return nil
+	}
+	*result = false
+	return err
+}
 //求欧几里距离
 func euclidean(infoA, infoB []float64) (float64, error) {
 	if len(infoA) != len(infoB) {
@@ -61,14 +141,9 @@ func euclidean(infoA, infoB []float64) (float64, error) {
 }
 
 func main() {
-
 	faceInfo := new(FaceInfo)
-	faceInfo.Users = &[]UserInfo{
-		{"dd",[]float64{0.09351825714111328,0.08321616053581238,0.09809954464435577,-0.01998741552233696,0.26775652170181274,0.1134270653128624,0.1648710072040558,0.20483659207820892,-0.023326005786657333,-0.1217176616191864,-0.0755978524684906,0.03812582790851593,0.11492004245519638,0.013577312231063843,0.018543846905231476,0.07659976929426193,-0.049104031175374985,0.08800642937421799,-0.05067070573568344,0.0019020534818992019,-0.025035396218299866,-0.1575738936662674,-0.0040832217782735825,-0.0964680165052414,0.0328700914978981,0.0005770592833869159,0.07399045675992966,-0.052216384559869766,-0.010209506377577782,0.0095668975263834,0.08432862162590027,0.10896217823028564,-0.03478309139609337,0.07903537154197693,-0.1055472120642662,0.012019138783216476,-0.0037519230972975492,0.08569210022687912,0.05316713824868202,0.07448112219572067,-0.05147789418697357,-0.11854398250579834,-0.07168947905302048,-0.02863757312297821,-0.09337509423494339,-0.030775070190429688,0.0866684541106224,-0.08333747833967209,0.1527475118637085,0.030085116624832153,0.11989954859018326,-0.08367308974266052,-0.12735635042190552,0.020418737083673477,0.020932776853442192,0.04071096330881119,0.035932935774326324,0.05595081299543381,-0.012288562953472137,-0.011089161038398743,-0.01895524375140667,-0.01230589859187603,0.11017808318138123,0.03356613591313362,0.020042136311531067,-0.10174042731523514,-0.03912102058529854,-0.15231157839298248,-0.023261047899723053,-0.09901971369981766,-0.07865060120820999,-0.07775644212961197,0.11030329018831253,-0.05063245818018913,0.14376845955848694,0.13945090770721436,0.010534513741731644,-0.11725194752216339,0.05511028319597244,-0.13695776462554932,-0.10393728315830231,-0.0456809476017952,0.16801822185516357,0.09404024481773376,-0.04820144921541214,0.08032084256410599,0.10621899366378784,0.05600167438387871,-0.03106614388525486,0.08692281693220139,0.05116403475403786,-0.01150878518819809,-0.1804492473602295,-0.08809004724025726,0.018530195578932762,0.030182305723428726,0.19620592892169952,0.01359756663441658,-0.12143474072217941,0.036500852555036545,0.041011080145835876,0.011488665826618671,-0.07456785440444946,-0.014739426784217358,-0.07395254075527191,0.05936586856842041,-0.08548828959465027,-0.07992430776357651,-0.18563999235630035,0.08980286866426468,-0.1616232693195343,-0.07002371549606323,-0.13136452436447144,-0.0978384017944336,-0.0692020058631897,-0.13645285367965698,0.023831820115447044,-0.0024178726598620415,0.155457004904747,0.00880532804876566,-0.033141445368528366,0.09871527552604675,-0.01884092390537262,-0.009653397835791111,0.08266890794038773,0.08766790479421616,0.04085218161344528,0.05234008654952049},"1"},
-	}
 	rpc.Register(faceInfo)
 	rpc.HandleHTTP()
-
 	port := utils.Conf.GetString("base","port")
 	l, err := net.Listen("tcp", ":"+port)
 	if err != nil {
@@ -76,4 +151,5 @@ func main() {
 	}
 	fmt.Println("正在监听"+port+"端口")
 	http.Serve(l, nil)
+	db.Close()
 }
