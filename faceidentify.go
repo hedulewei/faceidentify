@@ -106,6 +106,12 @@ func (f *FaceInfo) AddUser(user UserInfo,result *bool)error  {
 				return err
 			}
 			return b.Put([]byte(user.UID), buf)
+		}else {
+			buf, err := json.Marshal(user)
+			if err != nil {
+				return err
+			}
+			return b.Put([]byte(user.UID), buf)
 		}
 		return nil
 	})
