@@ -10,7 +10,7 @@ import (
 	"github.com/widaT/faceidentify/utils"
 	"github.com/boltdb/bolt"
 	"log"
-	"encoding/json"
+	"github.com/vmihailenco/msgpack"
 	"sort"
 )
 
@@ -60,7 +60,7 @@ func (f *FaceInfo) Identify(arg Arg, result *[]ResultInfo) error {
 		c := b.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
 			var user UserInfo
-			json.Unmarshal(v,&user)
+			msgpack.Unmarshal(v,&user)
 			for _,feature := range user.Features{
 				distance,_ := euclidean(arg.Feature,feature)
 				user.Distance = append(user.Distance,distance)
@@ -90,7 +90,7 @@ func (f *FaceInfo) AddUser(user UserInfo,result *bool)error  {
 	err := db.Update(func(tx *bolt.Tx) error {
 		b ,_:= tx.CreateBucketIfNotExists([]byte("group_"+user.GroupId))
 		if user.ActionType == "replace" {
-			buf, err := json.Marshal(user)
+			buf, err := msgpack.Marshal(user)
 			if err != nil {
 				return err
 			}
@@ -99,15 +99,15 @@ func (f *FaceInfo) AddUser(user UserInfo,result *bool)error  {
 		btye := b.Get([]byte(user.UID))
 		if btye != nil {
 			var userB UserInfo
-			json.Unmarshal(btye,&userB)
+			msgpack.Unmarshal(btye,&userB)
 			userB.Features = append(userB.Features,user.Features[0])
-			buf, err := json.Marshal(userB)
+			buf, err := msgpack.Marshal(userB)
 			if err != nil {
 				return err
 			}
 			return b.Put([]byte(user.UID), buf)
 		}else {
-			buf, err := json.Marshal(user)
+			buf, err := msgpack.Marshal(user)
 			if err != nil {
 				return err
 			}
