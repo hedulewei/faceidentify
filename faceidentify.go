@@ -141,7 +141,9 @@ func euclidean(infoA, infoB []float64) (float64, error) {
 	}
 	var distance float64
 	for i, number := range infoA {
-		distance += math.Pow(number-infoB[i], 2)
+		//distance += math.Pow(number-infoB[i], 2)
+		a:= number-infoB[i]
+		distance += a * a
 	}
 	return distance, nil
 }
